@@ -1,0 +1,325 @@
+Chapter 6
+    CART training algorithm
+    greedy algorithms
+    binary trees
+    black box models
+    chi-squared test
+    Classification and Regression Tree
+    CART
+    voting classifiers
+    mean squared error
+    Decision Trees
+    computational complexity
+    estimating class probabilities
+    Gini impurity versus entropy
+    instability drawbacks
+    making predictions
+    regression tasks
+    regularization hyperparameters
+    Ensemble Learning
+    Random Forests
+    Ensemble methods
+    ensembles
+    entropy impurity measure
+    Gini impurity measure
+    impurity
+    information theory
+    instability
+    leaf nodes
+    majority-vote predictions
+    parametric versus nonparametric
+    white versus black box
+    nonparametric models
+    NP-Complete problem
+    null hypothesis
+    p-value
+    parametric models
+    prediction problems
+    pruning
+    hyperparameters for Decision Trees
+    root nodes
+    DecisionTreeRegressor class
+    max_depth hyperparameter
+    presorting data with
+    random_state hyperparameter
+    Shannon's information theory
+    statistical significance
+    training set rotation
+    white box models
+    wisdom of the crowd
+
+Chapter 10
+    hyperbolic tangent
+    tanh
+    Logistic
+    sigmoid
+    Rectified Linear Unit function
+    ReLU
+    softmax
+    softplus
+    fine-tuning hyperparameters
+    from biological to artificial neurons
+    implementing MLPs with Keras
+    artificial neurons
+    automatic differentiation
+    autodiff
+    AutoML
+    backpropagation
+    batch size
+    bias neurons
+    biological neural networks
+    BNN
+    biological neurons
+    break the symmetry
+    callbacks
+    chain rule
+    classification MLPs
+    image classifiers using Sequential APIs
+    multitask classification
+    connectionism
+    cross-entropy loss
+    log loss
+    mean absolute error
+    MAE
+    mean squared error
+    Fashion MNIST dataset
+    deep neural networks
+    DNNs
+    Deep Neuroevolution
+    dense layer
+    dynamic models
+    epochs
+    event files
+    Exclusive OR
+    XOR
+    feedforward neural networks
+    FNNs
+    forward pass
+    fully connected layer
+    Functional API
+    HDF5 format
+    Heaviside step function
+    Hebb's rule
+    Hebbian learning
+    hidden layers in MLPs
+    neurons per hidden layer
+    Huber loss
+    Hyperas
+    Hyperband
+    hyperbolic tangent function
+    Hyperopt
+    fine-tuning for neural networks
+    learning rate
+    Python libraries for optimization
+    image classification
+    using Sequential API
+    input layers
+    input neurons
+    complex architectures
+    implementing MLPs with
+    keras.callbacks package
+    loading datasets with
+    multibackend Keras
+    saving and restoring models
+    using code examples from keras.io
+    Keras Tuner
+    kopt library
+    dense
+    fully connected
+    hidden layer
+    input layer
+    output layer
+    logical computations
+    Microsoft Cognitive Toolkit
+    CNTK
+    complex using Functional API
+    dynamic using Subclassing API
+    saving and restoring
+    using callbacks
+    using TensorBoard for visualization
+    regression MLPs
+    multiple outputs
+    from biological to artificial
+    logical computations with
+    per hidden layer
+    nonsequential neural networks
+    installing
+    output layers
+    parameter efficiency
+    Perceptron
+    Perceptron convergence theorem
+    propositional logic
+    PyTorch library
+    regression MLPs using Sequential API
+    restoring models
+    reverse-mode autodiff
+    Perceptron class
+    Scikit-Optimize
+    TensorFlow
+    image classifiers
+    regression MLP
+    Sklearn-Deap
+    softmax function
+    softplus activation function
+    Spearmint library
+    step function
+    Subclassing API
+    summaries
+    symmetry breaking in backpropagation
+    Talos library
+    TensorBoard
+    TensorFlow Playground
+    PyTorch library and
+    tf.keras
+    tf.summary package
+    Theano
+    threshold logic unit
+    TLU
+    transfer learning
+    Wide & Deep neural networks
+
+Chapter 11
+    1cycle scheduling
+    exponential linear unit
+    ELU
+    Logistic
+    sigmoid
+    nonsaturating
+    Scaled Exponential Linear Unit
+    SELU
+    AdaGrad
+    Adam and Nadam optimization
+    adaptive learning rate
+    adaptive moment estimation
+    restricted Boltzmann machines
+    RBMs
+    Batch Normalization
+    BN
+    training sparse models
+    overfitting
+    default configuration
+    faster optimizers
+    reusing pretrained layers
+    vanishing/exploding gradients problems
+    dropout
+    dying ReLUs problem
+    exploding gradients problem
+    exponential scheduling
+    fan-in/fan-out numbers
+    first-order partial derivatives
+    Jacobians
+    Glorot and He initialization
+    gradient clipping
+    greedy layer-wise pretraining
+    He initialization
+    LeCun initialization
+    Xavier initialization
+    keep probability
+    implementing Batch Normalization with
+    implementing dropout
+    transfer learning with
+    reusing pretrained
+    leaky ReLU function
+    learning rate scheduling
+    learning schedules
+    max-norm regularization
+    momentum optimization
+    momentum vector
+    Monte Carlo
+    MC
+    Nesterov Accelerated Gradient
+    NAG
+    Nesterov momentum optimization
+    nonsaturating activation functions
+    normalization
+    creating faster
+    first- and second-order partial derivatives
+    RMSProp
+    avoiding through regularization
+    parametric leaky ReLU
+    PReLU
+    performance scheduling
+    piecewise constant scheduling
+    power scheduling
+    on auxiliary tasks
+    unsupervised pretraining
+    randomized leaky ReLU
+    RReLU
+    avoiding overfitting through
+    second-order partial derivatives
+    Hessians
+    self-normalization
+    self-supervised learning
+    skip connections
+    smoothing term
+    sparse models
+    TensorFlow Model Optimization Toolkit
+    TF-MOT
+    versions covered
+    TensorFlow custom models and training
+    implementing learning rate scheduling
+    tf.keras
+    transfer learning
+    wall time
+
+Chapter 12
+    accuracy
+    AutoGraphs
+    automatic differentiation
+    autodiff
+    computation graphs
+    mean squared error
+    activation functions initializers regularizers and constraints
+    computing gradients using Autodiff
+    layers
+    loss functions
+    losses and metrics
+    metrics
+    models
+    saving and loading
+    training loops
+    loading and preprocessing with TensorFlow
+    eager execution/eager mode
+    embedding
+    features
+    First In First Out
+    FIFO
+    graph mode
+    Huber loss
+    just-in-time
+    JIT
+    low-level API
+    kernels
+    see cost functions
+    locating papers on
+    custom with TensorFlow
+    using TensorFlow like
+    queues
+    ragged tensors
+    reconstruction loss
+    residual blocks
+    sets
+    sparse tensors
+    stateful metrics
+    streaming metrics
+    string tensors
+    symbolic tensors
+    tensor arrays
+    TensorFlow Hub
+    TensorFlow Lite
+    TensorFlow basics of architecture
+    benefits xvi
+    community support
+    getting help
+    library ecosystem
+    operating system compatibility
+    TensorFlow data loading and preprocessing
+    TensorFlow functions and graphs
+    AutoGraph and tracing
+    TF Function rules
+    tensors
+    rules
+    TPUs
+    tensor processing units
+    type conversions
+    variables
