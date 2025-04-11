@@ -12,6 +12,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.feature_selection import chi2
+from mpl_toolkits.mplot3d import Axes3D
 
 
 def preprocess_text(text):
@@ -66,6 +67,21 @@ p_w_d = np.array([term_doc_counts[word] / num_documents for word in words_phrase
 
 PMI_values = np.log1p(p_w_d / (p_w * p_d))
 
+def entropy(probs):
+    return -np.sum([p * np.log2(p) for p in probs if p > 0])
+
+# Build document presence matrix
+phrase_entropy = {}
+for phrase in words_phrases:
+    presence = []
+    for text in preprocessed_texts:
+        presence.append(1 if phrase in text else 0)
+    if sum(presence) > 0: 
+        prob = np.array(presence) / sum(presence)
+        phrase_entropy[phrase] = entropy(prob)
+    else:
+        phrase_entropy[phrase] = 0
+
 Train_Index_folder_path = os.path.join(os.getcwd(), "Train Chapters\\Train_Index_by_chapters.txt")
 with open(Train_Index_folder_path, "r", encoding="utf-8") as file:
     Train_Index = file.read().lower()
@@ -97,7 +113,7 @@ for chapter_idx, tf in enumerate(tf):
     indexed_phrases = indexed_phrases_by_chapter.get(chapter_name, set())
 
     for phrase, tf_value in tf.items():
-        phrase_data.append({"Word/Phrase": phrase, "TF": tf_value, "IDF": idf.get(phrase, 0), "TF-IDF": tf_value * idf.get(phrase, 0), "Keyword Label": 1 if phrase in indexed_phrases else 0, "Document": chapter_name, "PMI": PMI_values[words_phrases.tolist().index(phrase)] if phrase in words_phrases else 0})
+        phrase_data.append({"Word/Phrase": phrase, "TF": tf_value, "IDF": idf.get(phrase, 0), "TF-IDF": tf_value * idf.get(phrase, 0), "Keyword Label": 1 if phrase in indexed_phrases else 0, "Document": chapter_name, "Entropy": phrase_entropy.get(phrase, 0), "PMI": PMI_values[words_phrases.tolist().index(phrase)] if phrase in words_phrases else 0})
 
 
 phrase_df = pd.DataFrame(phrase_data)
@@ -108,20 +124,31 @@ phrase_df["PMI"] = scaler_pmi.fit_transform(phrase_df["PMI"].values.reshape(-1, 
 
 display(phrase_df.head(20))
 
-X = phrase_df[["TF-IDF", "PMI"]].values
-Y = phrase_df["Keyword Label"].values 
+# Separate keyword and non-keyword entries
+keyword_df = phrase_df[phrase_df["Keyword Label"] == 1]
+non_keyword_df = phrase_df[phrase_df["Keyword Label"] == 0]
+
+# Sample non-keywords to match keyword count
+non_keyword_sampled = non_keyword_df.sample(n=len(keyword_df) * 5, random_state=10)
+
+# Combine and shuffle the dataset
+balanced_df = pd.concat([keyword_df, non_keyword_sampled]).sample(frac=1, random_state=42).reset_index(drop=True)
+
+X = balanced_df[["TF-IDF", "Entropy", "PMI"]].values
+Y = balanced_df["Keyword Label"].values 
 
 #X[:, 0] = np.log1p(X[:, 0])
-scaler = MinMaxScaler()
-X[:, 0] = scaler.fit_transform(X[:, 0].reshape(-1, 1)).flatten()
-X[:, 1] = scaler.fit_transform(X[:, 1].reshape(-1, 1)).flatten()
+for i in range(X.shape[1]):
+    X[:, i] = MinMaxScaler().fit_transform(X[:, i].reshape(-1, 1)).flatten()
 
-knn = KNeighborsClassifier(n_neighbors=1, metric="euclidean")
+print("creating knn classifier")
+knn = KNeighborsClassifier(n_neighbors=3, metric="euclidean")
 knn.fit(X, Y)
 
 testing_folder_path = os.path.join(os.getcwd(), "Test Chapters")
 Test_Chapters = sorted(glob.glob(os.path.join(testing_folder_path, "ch*.txt")))
 
+print("sorting test chapters")
 test_chapter_texts = []
 for file in Test_Chapters:
     with open(file, "r", encoding="utf-8") as f:
@@ -157,20 +184,35 @@ for text in test_chapter_texts:
 
 test_idf = {phrase: math.log(num_test_documents / (test_df[phrase] + 1)) for phrase in test_words_phrases}
 
+
+phrase_entropy = {}
+for phrase in test_words_phrases:
+    presence = []
+    for text in test_chapter_texts:
+        presence.append(1 if phrase in text else 0)
+    if sum(presence) > 0: 
+        prob = np.array(presence) / sum(presence)
+        phrase_entropy[phrase] = entropy(prob)
+    else:
+        phrase_entropy[phrase] = 0
+
 test_phrase_data = []
 for phrase, tf_value in zip(test_words_phrases, test_tf_values):
-    test_phrase_data.append({"Word/Phrase": phrase, "TF": tf_value, "IDF": test_idf.get(phrase, 0), "TF-IDF": tf_value * test_idf.get(phrase, 0), "PMI": test_PMI_values[test_words_phrases.tolist().index(phrase)] if phrase in test_words_phrases else 0})
+    test_phrase_data.append({"Word/Phrase": phrase, "TF": tf_value, "IDF": test_idf.get(phrase, 0), "TF-IDF": tf_value * test_idf.get(phrase, 0), "Entropy": phrase_entropy.get(phrase, 0), "PMI": test_PMI_values[test_words_phrases.tolist().index(phrase)] if phrase in test_words_phrases else 0})
 
 test_phrase_df = pd.DataFrame(test_phrase_data)
+
 
 scaler_pmi = MinMaxScaler()
 test_phrase_df["PMI"] = scaler_pmi.fit_transform(test_phrase_df["PMI"].values.reshape(-1, 1)).flatten()
 
-X_test = test_phrase_df[["TF-IDF", "PMI"]].values
+X_test = test_phrase_df[["TF-IDF", "Entropy", "PMI"]].values
 
-X_test[:, 0] = scaler.transform(X_test[:, 0].reshape(-1, 1)).flatten()
-X_test[:, 1] = scaler.transform(X_test[:, 1].reshape(-1, 1)).flatten()
+scalers = [MinMaxScaler().fit(X[:, i].reshape(-1, 1)) for i in range(X.shape[1])]
+for i in range(X_test.shape[1]):
+    X_test[:, i] = scalers[i].transform(X_test[:, i].reshape(-1, 1)).flatten()
 
+print("Creating test predictions")
 test_predictions = knn.predict(X_test)
 test_phrase_df["Predicted Keyword Label"] = test_predictions
 
@@ -196,26 +238,30 @@ print(f"Precision: {precision:.4f}")
 print(f"Recall: {recall:.4f}")
 print(f"F1 Score: {f1:.4f}")
 
-xx, yy = np.meshgrid(
-    np.linspace(X[:, 0].min() - 0.1, X[:, 0].max() + 0.1, 300),  
-    np.linspace(X[:, 1].min() - 0.1, X[:, 1].max() + 0.1, 300)
-)
+x_range = np.linspace(X[:, 0].min() - 0.1, X[:, 0].max() + 0.1, 30)
+y_range = np.linspace(X[:, 1].min() - 0.1, X[:, 1].max() + 0.1, 30)
+z_range = np.linspace(X[:, 2].min() - 0.1, X[:, 2].max() + 0.1, 30)
 
-Z = knn.predict(np.c_[xx.ravel(), yy.ravel()])
+xx, yy, zz = np.meshgrid(x_range, y_range, z_range)
+
+# Flatten the grid and predict
+grid_points = np.c_[xx.ravel(), yy.ravel(), zz.ravel()]
+Z = knn.predict(grid_points)
 Z = Z.reshape(xx.shape)
 
-plt.figure(figsize=(10, 6))
-contour = plt.contourf(xx, yy, Z, cmap=plt.cm.coolwarm, alpha=0.5)
+# 3D Scatter Plot of Training Data
+fig = plt.figure(figsize=(12, 8))
+ax = fig.add_subplot(111, projection='3d')
 
-scatter = plt.scatter(X[:, 0], X[:, 1], c=Y, cmap=plt.cm.coolwarm, edgecolors="k", s=50)
+# Plot original data points
+scatter = ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=Y, cmap=plt.cm.coolwarm, edgecolor='k', s=40)
 
-legend_labels = {0: "Not Keyword (0)", 1: "Keyword (1)"}
-handles = [plt.Line2D([0], [0], marker='o', color='w', markersize=10, markerfacecolor=plt.cm.coolwarm(i/1)) for i in range(2)]
-plt.legend(handles, [legend_labels[i] for i in range(2)], title="Keyword Label")
+# Plot the decision boundary as scatter of predicted labels (optional: reduce for clarity)
+ax.scatter(xx.ravel(), yy.ravel(), zz.ravel(), c=Z.ravel(), alpha=0.03, cmap=plt.cm.coolwarm)
 
-plt.xlabel("TF-IDF (Term Frequency - Inverse Document Frequency)")
-plt.ylabel("PMI (Pointwise Mutual Information)")
-plt.title("kNN Classification (TF-IDF vs. PMI) with k=3")
+ax.set_xlabel('TF')
+ax.set_ylabel('IDF')
+ax.set_zlabel('PMI')
+ax.set_title("3D kNN Classification Surface (TF, IDF, PMI)")
 
 plt.show()
-
