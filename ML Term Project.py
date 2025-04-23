@@ -13,7 +13,21 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.feature_selection import chi2
 from mpl_toolkits.mplot3d import Axes3D
+import networkx as nx
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.model_selection import StratifiedKFold
+from sklearn.feature_extraction.text import CountVectorizer
+import yake
 
+
+data1 = "YAKE_Score"
+data2 = "Position_Score"
+data3 = "PMI"
+data4 = "TF-IDF"
+data5 = "NB_Prob"
+data6 = "Entropy"
+k = 7
 
 def preprocess_text(text):
     text = text.lower()  # Convert to lowercase
@@ -44,9 +58,9 @@ tf_values = X_counts / sum(X_counts)
 # Show sample non-zero term frequencies
 tf = [{words_phrases[i]: tf_values[i] for i in range(len(words_phrases))}]
 
-print("🔹 TF Matrix Shape:", X_counts.shape)
-print("🔹 Sample TF values:", list(tf[0].items())[:10])
-print("🔹 Sample extracted words/phrases:", words_phrases[:20])
+print("TF Matrix Shape:", X_counts.shape)
+print("Sample TF values:", list(tf[0].items())[:10])
+print("Sample extracted words/phrases:", words_phrases[:20])
 
 df = Counter()
 for text in chapter_texts:
@@ -122,6 +136,84 @@ phrase_df = phrase_df.sort_values(by="Keyword Label", ascending=False)
 scaler_pmi = MinMaxScaler()
 phrase_df["PMI"] = scaler_pmi.fit_transform(phrase_df["PMI"].values.reshape(-1, 1)).flatten()
 
+
+
+phrase_first_pos = []
+
+# Flatten chapter_texts to align with chapter_name references
+chapter_lookup = {f"ch{i+1}.txt": text for i, text in enumerate(chapter_texts)}
+
+for _, row in phrase_df.iterrows():
+    phrase = row["Word/Phrase"]
+    chapter_name = row["Document"]
+    chapter_text = chapter_lookup.get(chapter_name, "")
+
+    index = chapter_text.find(phrase)
+    if index != -1:
+        normalized_position = 1 - (index / len(chapter_text))  # earlier = higher
+    else:
+        normalized_position = 0  # not found, treat as least important
+
+    phrase_first_pos.append(normalized_position)
+
+phrase_df["Position_Score"] = phrase_first_pos
+
+# --- NB STEP 1: Vectorize phrases using TF-IDF ---
+train_phrases = phrase_df["Word/Phrase"].tolist()
+train_labels = phrase_df["Keyword Label"].values
+
+vectorizer_nb = CountVectorizer(
+    ngram_range=(1, 2),
+    stop_words='english',
+    token_pattern=r"(?u)\b[a-zA-Z]{2,}\b"
+)
+
+X_train_nb = vectorizer_nb.fit_transform(train_phrases)
+
+# --- NB STEP 2: Out-of-fold NB probability for training set ---
+oof_probs = np.zeros(len(train_phrases))
+kf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+for train_idx, val_idx in kf.split(X_train_nb, train_labels):
+    X_tr, X_val = X_train_nb[train_idx], X_train_nb[val_idx]
+    y_tr = train_labels[train_idx]
+
+    nb_model = MultinomialNB()
+    nb_model.fit(X_tr, y_tr)
+
+    oof_probs[val_idx] = nb_model.predict_proba(X_val)[:, 1]  # probability of being a keyword
+
+# Add NB score to phrase_df
+phrase_df["NB_Prob"] = oof_probs
+
+# Configure YAKE
+yake_extractor = yake.KeywordExtractor(
+    lan="en", 
+    n=2,  # same as your ngram_range
+    dedupLim=0.9, 
+    top=100000, 
+    features=None
+)
+
+# --- Score training phrases with YAKE ---
+yake_scores_train = []
+yake_cache = {}
+
+print("Obtaining Yake! Scores")
+
+for _, row in phrase_df.iterrows():
+    phrase = row["Word/Phrase"]
+    chapter = row["Document"]
+    chapter_text = chapter_lookup.get(chapter, "")
+
+    if chapter not in yake_cache:
+        yake_cache[chapter] = dict(yake_extractor.extract_keywords(chapter_text))
+
+    score = yake_cache[chapter].get(phrase, 1.0)
+    yake_scores_train.append(score)
+
+phrase_df["YAKE_Score"] = yake_scores_train
+
 display(phrase_df.head(20))
 
 # Separate keyword and non-keyword entries
@@ -129,12 +221,12 @@ keyword_df = phrase_df[phrase_df["Keyword Label"] == 1]
 non_keyword_df = phrase_df[phrase_df["Keyword Label"] == 0]
 
 # Sample non-keywords to match keyword count
-non_keyword_sampled = non_keyword_df.sample(n=len(keyword_df) * 5, random_state=10)
+non_keyword_sampled = non_keyword_df.sample(n=len(keyword_df), random_state=10)
 
 # Combine and shuffle the dataset
 balanced_df = pd.concat([keyword_df, non_keyword_sampled]).sample(frac=1, random_state=42).reset_index(drop=True)
 
-X = balanced_df[["TF-IDF", "Entropy", "PMI"]].values
+X = balanced_df[[data1, data5]].values
 Y = balanced_df["Keyword Label"].values 
 
 #X[:, 0] = np.log1p(X[:, 0])
@@ -142,7 +234,7 @@ for i in range(X.shape[1]):
     X[:, i] = MinMaxScaler().fit_transform(X[:, i].reshape(-1, 1)).flatten()
 
 print("creating knn classifier")
-knn = KNeighborsClassifier(n_neighbors=3, metric="euclidean")
+knn = KNeighborsClassifier(n_neighbors=k, metric="euclidean")
 knn.fit(X, Y)
 
 testing_folder_path = os.path.join(os.getcwd(), "Test Chapters")
@@ -202,19 +294,59 @@ for phrase, tf_value in zip(test_words_phrases, test_tf_values):
 
 test_phrase_df = pd.DataFrame(test_phrase_data)
 
+test_phrase_first_pos = []
+
+# Create lookup for test chapter content
+test_chapter_lookup = {os.path.basename(f): text for f, text in zip(Test_Chapters, test_chapter_texts)}
+
+# Assign Document column if not yet assigned
+if "Document" not in test_phrase_df.columns:
+    doc_names = [os.path.basename(f) for f in Test_Chapters]
+    chunk_size = len(test_phrase_df) // len(doc_names)
+    test_phrase_df["Document"] = [doc_names[min(i // chunk_size, len(doc_names) - 1)] for i in range(len(test_phrase_df))]
+
+for _, row in test_phrase_df.iterrows():
+    phrase = row["Word/Phrase"]
+    chapter_name = row["Document"]
+    chapter_text = test_chapter_lookup.get(chapter_name, "")
+
+    index = chapter_text.find(phrase)
+    if index != -1:
+        normalized_position = 1 - (index / len(chapter_text))  # earlier = higher
+    else:
+        normalized_position = 0  # not found
+
+    test_phrase_first_pos.append(normalized_position)
+
+test_phrase_df["Position_Score"] = test_phrase_first_pos
+
+yake_scores_test = []
+
+for _, row in test_phrase_df.iterrows():
+    phrase = row["Word/Phrase"]
+    chapter = row["Document"]
+    chapter_text = test_chapter_lookup.get(chapter, "")
+
+    if chapter not in yake_cache:
+        yake_cache[chapter] = dict(yake_extractor.extract_keywords(chapter_text))
+
+    score = yake_cache[chapter].get(phrase, 1.0)
+    yake_scores_test.append(score)
+
+test_phrase_df["YAKE_Score"] = yake_scores_test
 
 scaler_pmi = MinMaxScaler()
 test_phrase_df["PMI"] = scaler_pmi.fit_transform(test_phrase_df["PMI"].values.reshape(-1, 1)).flatten()
 
-X_test = test_phrase_df[["TF-IDF", "Entropy", "PMI"]].values
+nb_final = MultinomialNB()
+nb_final.fit(X_train_nb, train_labels)
 
-scalers = [MinMaxScaler().fit(X[:, i].reshape(-1, 1)) for i in range(X.shape[1])]
-for i in range(X_test.shape[1]):
-    X_test[:, i] = scalers[i].transform(X_test[:, i].reshape(-1, 1)).flatten()
+test_phrases = test_phrase_df["Word/Phrase"].tolist()
+X_test_nb = vectorizer_nb.transform(test_phrases)
+test_nb_probs = nb_final.predict_proba(X_test_nb)[:, 1]
 
-print("Creating test predictions")
-test_predictions = knn.predict(X_test)
-test_phrase_df["Predicted Keyword Label"] = test_predictions
+# Add NB score to test_phrase_df
+test_phrase_df["NB_Prob"] = test_nb_probs
 
 Test_Index_folder_path = os.path.join(os.getcwd(), "Test Chapters\\Test_Index_by_chapters.txt")
 with open(Test_Index_folder_path, "r", encoding="utf-8") as file:
@@ -224,6 +356,36 @@ indexed_test_phrases = {normalize_phrase(line) for line in Test_Index.split("\n"
 
 test_phrase_df["Actual Keyword Label"] = test_phrase_df["Word/Phrase"].apply(lambda x: 1 if x in indexed_test_phrases else 0)
 
+
+# Step 1: Add NB predicted labels based on threshold (default 0.5)
+test_phrase_df["NB_Prediction"] = (test_phrase_df["NB_Prob"] > 0.3).astype(int)
+
+# Step 2: Compare with actual keyword labels
+y_true_nb = test_phrase_df["Actual Keyword Label"].values
+y_pred_nb = test_phrase_df["NB_Prediction"].values
+
+# Step 3: Calculate metrics
+accuracy_nb = accuracy_score(y_true_nb, y_pred_nb)
+precision_nb = precision_score(y_true_nb, y_pred_nb, zero_division=1)
+recall_nb = recall_score(y_true_nb, y_pred_nb, zero_division=1)
+f1_nb = f1_score(y_true_nb, y_pred_nb, zero_division=1)
+
+# Step 4: Print results
+print("\nEvaluation Metrics for Naïve Bayes Classifier Only:")
+print(f"Accuracy:  {accuracy_nb:.4f}")
+print(f"Precision: {precision_nb:.4f}")
+print(f"Recall:    {recall_nb:.4f}")
+print(f"F1 Score:  {f1_nb:.4f}")
+
+X_test = test_phrase_df[[data1, data5]].values
+
+for i in range(X_test.shape[1]):
+    X_test[:, i] = MinMaxScaler().fit_transform(X_test[:, i].reshape(-1, 1)).flatten()
+
+print("Creating test predictions")
+test_predictions = knn.predict(X_test)
+test_phrase_df["Predicted Keyword Label"] = test_predictions
+
 y_true = test_phrase_df["Actual Keyword Label"].values
 y_pred = test_phrase_df["Predicted Keyword Label"].values
 
@@ -232,36 +394,135 @@ precision = precision_score(y_true, y_pred, zero_division=1)
 recall = recall_score(y_true, y_pred, zero_division=1)
 f1 = f1_score(y_true, y_pred, zero_division=1)
 
-print("🔹 Evaluation Metrics:")
+print("Evaluation Metrics:")
 print(f"Accuracy: {accuracy:.4f}")
 print(f"Precision: {precision:.4f}")
 print(f"Recall: {recall:.4f}")
 print(f"F1 Score: {f1:.4f}")
 
-x_range = np.linspace(X[:, 0].min() - 0.1, X[:, 0].max() + 0.1, 30)
-y_range = np.linspace(X[:, 1].min() - 0.1, X[:, 1].max() + 0.1, 30)
-z_range = np.linspace(X[:, 2].min() - 0.1, X[:, 2].max() + 0.1, 30)
+# x_range = np.linspace(X[:, 0].min() - 0.1, X[:, 0].max() + 0.1, 30)
+# y_range = np.linspace(X[:, 1].min() - 0.1, X[:, 1].max() + 0.1, 30)
+# z_range = np.linspace(X[:, 2].min() - 0.1, X[:, 2].max() + 0.1, 30)
 
-xx, yy, zz = np.meshgrid(x_range, y_range, z_range)
+# xx, yy, zz = np.meshgrid(x_range, y_range, z_range)
 
-# Flatten the grid and predict
-grid_points = np.c_[xx.ravel(), yy.ravel(), zz.ravel()]
-Z = knn.predict(grid_points)
-Z = Z.reshape(xx.shape)
+# # Flatten the grid and predict
+# grid_points = np.c_[xx.ravel(), yy.ravel(), zz.ravel()]
+# Z = knn.predict(grid_points)
+# Z = Z.reshape(xx.shape)
 
-# 3D Scatter Plot of Training Data
-fig = plt.figure(figsize=(12, 8))
-ax = fig.add_subplot(111, projection='3d')
+# # 3D Scatter Plot of Training Data
+# fig = plt.figure(figsize=(12, 8))
+# ax = fig.add_subplot(111, projection='3d')
 
-# Plot original data points
-scatter = ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=Y, cmap=plt.cm.coolwarm, edgecolor='k', s=40)
+# # Plot original data points
+# scatter = ax.scatter(X[:, 0], X[:, 1], X[:, 2], c=Y, cmap=plt.cm.coolwarm, edgecolor='k', s=40)
 
-# Plot the decision boundary as scatter of predicted labels (optional: reduce for clarity)
-ax.scatter(xx.ravel(), yy.ravel(), zz.ravel(), c=Z.ravel(), alpha=0.03, cmap=plt.cm.coolwarm)
+# # Plot the decision boundary as scatter of predicted labels (optional: reduce for clarity)
+# ax.scatter(xx.ravel(), yy.ravel(), zz.ravel(), c=Z.ravel(), alpha=0.03, cmap=plt.cm.coolwarm)
 
-ax.set_xlabel('TF')
-ax.set_ylabel('IDF')
-ax.set_zlabel('PMI')
-ax.set_title("3D kNN Classification Surface (TF, IDF, PMI)")
+# ax.set_xlabel(data1)
+# ax.set_ylabel(data2)
+# ax.set_zlabel(data3)
+# ax.set_title(f"3D kNN Classification Surface ({data1}, {data2}, {data3}) Where k = {k}")
 
+# plt.show()
+# STEP 1: Compute confidence from inverse kNN distances
+distances, _ = knn.kneighbors(X_test)
+confidence_scores = 1 / (np.mean(distances, axis=1) + 1e-5)
+test_phrase_df["Confidence"] = confidence_scores
+test_phrase_df["Normalized Confidence"] = MinMaxScaler().fit_transform(confidence_scores.reshape(-1, 1)).flatten()
+
+# STEP 2: Assign Document if missing
+if "Document" not in test_phrase_df.columns:
+    doc_names = [os.path.basename(f) for f in Test_Chapters]
+    chunk_size = len(test_phrase_df) // len(doc_names)
+    test_phrase_df["Document"] = [doc_names[min(i // chunk_size, len(doc_names) - 1)] for i in range(len(test_phrase_df))]
+
+# STEP 3: Select top 15 keywords per chapter
+top_keywords_df = (
+    test_phrase_df[test_phrase_df["Predicted Keyword Label"] == 1]
+    .groupby("Document")
+    .apply(lambda df: df.sort_values("Normalized Confidence", ascending=False).head(15))
+    .reset_index(drop=True)
+)
+
+# STEP 4: Build concept map using networkx
+# Rebuild graph with unique keywords only
+concept_graph = nx.Graph()
+concept_graph.add_node("CONCEPT MAP", color='gold', size=1500)
+
+# Step 1: Add unique keyword nodes with style
+keyword_set = set()
+for _, row in top_keywords_df.iterrows():
+    phrase = row["Word/Phrase"]
+    conf = row["Normalized Confidence"]
+    
+    if phrase not in keyword_set:
+        if conf > 0.8:
+            color = "lightcoral"
+            size = 1000
+        elif conf > 0.6:
+            color = "lightblue"
+            size = 800
+        else:
+            color = "lightgreen"
+            size = 600
+
+        concept_graph.add_node(phrase, color=color, size=size)
+        concept_graph.add_edge("CONCEPT MAP", phrase)
+        keyword_set.add(phrase)
+
+# Step 2: Connect keywords based on co-occurrence per chapter
+grouped_keywords = top_keywords_df.groupby("Document")["Word/Phrase"].apply(list)
+
+for doc_name, keyword_list in grouped_keywords.items():
+    for i in range(len(keyword_list)):
+        for j in range(i + 1, len(keyword_list)):
+            concept_graph.add_edge(keyword_list[i], keyword_list[j])
+
+# (Optional) Step 3: Connect keyword to chapter group nodes (for traceability)
+# This adds chapter nodes and connects them to the keywords from that chapter
+add_chapter_nodes = False  # Set to True if you want visible chapter clusters
+if add_chapter_nodes:
+    for doc_name, keyword_list in grouped_keywords.items():
+        chapter_node = f"[{doc_name}]"
+        concept_graph.add_node(chapter_node, shape='diamond', color='gray', size=500)
+        for phrase in keyword_list:
+            concept_graph.add_edge(chapter_node, phrase)
+
+# Step 4: Draw final concept map
+plt.figure(figsize=(16, 12))
+pos = nx.spring_layout(concept_graph, k=0.8)
+
+colors = [concept_graph.nodes[n].get('color', 'gray') for n in concept_graph.nodes()]
+sizes = [concept_graph.nodes[n].get('size', 500) for n in concept_graph.nodes()]
+
+nx.draw(concept_graph, pos,
+        with_labels=True,
+        node_color=colors,
+        node_size=sizes,
+        edge_color='gray',
+        font_size=8,
+        font_weight='bold',
+        width=1.2)
+
+plt.title("Concept Map (Unique Keywords Across Chapters)", fontsize=16)
+plt.axis('off')
+plt.tight_layout()
+plt.savefig("concept_map_styled.png", dpi=300)
 plt.show()
+
+y_true_concept = top_keywords_df["Actual Keyword Label"].values
+y_pred_concept = top_keywords_df["Predicted Keyword Label"].values  # should all be 1s
+
+accuracy_concept = accuracy_score(y_true_concept, y_pred_concept)
+precision_concept = precision_score(y_true_concept, y_pred_concept, zero_division=1)
+recall_concept = recall_score(y_true_concept, y_pred_concept, zero_division=1)
+f1_concept = f1_score(y_true_concept, y_pred_concept, zero_division=1)
+
+print("\nConcept Map Evaluation Metrics:")
+print(f"Accuracy (Concept Map Keywords): {accuracy_concept:.4f}")
+print(f"Precision: {precision_concept:.4f}")
+print(f"Recall: {recall_concept:.4f}")
+print(f"F1 Score: {f1_concept:.4f}")
